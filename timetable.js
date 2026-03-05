@@ -37,6 +37,20 @@ const supabaseClient = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
+function getEphemeralSupabaseClient() {
+  if (!window.supabase) {
+    return null;
+  }
+
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+}
+
 function normalizeEmail(value) {
   return (value || "").trim().toLowerCase();
 }
@@ -80,8 +94,9 @@ function saveUsers(users) {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
-function ensureLocalUserFromSupabase(email, displayName = "") {
+function ensureLocalUserFromSupabase(email, displayName = "", readOnlyOf = "") {
   const normalizedEmail = normalizeEmail(email);
+  const normalizedReadOnlyOf = normalizeEmail(readOnlyOf);
   if (!normalizedEmail) {
     return "";
   }
@@ -91,8 +106,11 @@ function ensureLocalUserFromSupabase(email, displayName = "") {
   if (existingKey) {
     if (!users[existingKey].email) {
       users[existingKey].email = normalizedEmail;
-      saveUsers(users);
     }
+    if (normalizedReadOnlyOf) {
+      users[existingKey].readOnlyOf = normalizedReadOnlyOf;
+    }
+    saveUsers(users);
     return existingKey;
   }
 
@@ -101,6 +119,7 @@ function ensureLocalUserFromSupabase(email, displayName = "") {
     displayName: normalizeDisplayName(displayName) || normalizedEmail.split("@")[0],
     password: "supabase-managed",
     avatar: "",
+    readOnlyOf: normalizedReadOnlyOf || undefined,
     contact: { email: normalizedEmail, phone: "" }
   };
   saveUsers(users);
@@ -206,6 +225,21 @@ function renderHourInputs() {
   populateHourOptions();
   document.getElementById("startHourInput").value = String(startHour);
   document.getElementById("endHourInput").value = String(endHour);
+}
+
+function applyHourRange(nextStart, nextEnd) {
+  if (!Number.isInteger(nextStart) || !Number.isInteger(nextEnd) || nextStart < 0 || nextEnd > 24 || nextEnd <= nextStart) {
+    setStatus("Pick valid hours. End must be later than start.");
+    return false;
+  }
+
+  startHour = nextStart;
+  endHour = nextEnd;
+  saveAccountData();
+  renderHourInputs();
+  buildGrid();
+  setStatus(`Logged in as ${activeLoginUser} · TZ ${formatTimezoneOffset(timezoneOffsetMin)} · Hours ${padHour(startHour)}-${padHour(endHour % 24)}`);
+  return true;
 }
 
 function accountStorageKey(type, account) {
@@ -929,7 +963,8 @@ async function loginUser() {
 
   const key = ensureLocalUserFromSupabase(
     data.user.email || email,
-    data.user.user_metadata?.display_name || ""
+    data.user.user_metadata?.display_name || "",
+    data.user.user_metadata?.read_only_of || ""
   );
   setAuthStatus("");
   startUserSession(key);
@@ -1174,16 +1209,27 @@ document.getElementById("hoursApplyBtn").addEventListener("click", () => {
 
   const nextStart = Number.parseInt(document.getElementById("startHourInput").value, 10);
   const nextEnd = Number.parseInt(document.getElementById("endHourInput").value, 10);
-  if (!Number.isInteger(nextStart) || !Number.isInteger(nextEnd) || nextStart < 0 || nextEnd > 24 || nextEnd <= nextStart) {
-    setStatus("Pick valid hours. End must be later than start.");
-    return;
-  }
+  applyHourRange(nextStart, nextEnd);
+});
 
-  startHour = nextStart;
-  endHour = nextEnd;
-  saveAccountData();
-  buildGrid();
-  setStatus(`Logged in as ${activeLoginUser} · TZ ${formatTimezoneOffset(timezoneOffsetMin)} · Hours ${padHour(startHour)}-${padHour(endHour % 24)}`);
+document.querySelectorAll("button[data-hours-preset]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (isReadOnlySession) {
+      setStatus("Read-only sessions cannot change timetable hours.");
+      return;
+    }
+
+    const preset = btn.dataset.hoursPreset;
+    if (preset === "school") {
+      applyHourRange(7, 20);
+      return;
+    }
+    if (preset === "work") {
+      applyHourRange(8, 18);
+      return;
+    }
+    applyHourRange(0, 24);
+  });
 });
 
 document.getElementById("calendarAddEventBtn").addEventListener("click", () => {
@@ -1370,9 +1416,14 @@ document.getElementById("createProfileBtn").addEventListener("click", () => {
   document.getElementById("newProfilePassword").value = "";
 });
 
-document.getElementById("createShareBtn").addEventListener("click", () => {
+document.getElementById("createShareBtn").addEventListener("click", async () => {
   if (isReadOnlySession) {
     setAccountStatus("Read-only sessions cannot create share logins.");
+    return;
+  }
+
+  if (!supabaseClient) {
+    setAccountStatus("Supabase client failed to load.");
     return;
   }
 
@@ -1388,15 +1439,33 @@ document.getElementById("createShareBtn").addEventListener("click", () => {
     setAccountStatus("Share password must be at least 6 characters.");
     return;
   }
-  if (findUserKeyByEmail(users, shareUser)) {
-    setAccountStatus("Share email already exists.");
+
+  const shareClient = getEphemeralSupabaseClient();
+  if (!shareClient) {
+    setAccountStatus("Supabase client failed to load.");
+    return;
+  }
+
+  const { error } = await shareClient.auth.signUp({
+    email: shareUser,
+    password: sharePass,
+    options: {
+      data: {
+        display_name: `${activeDataAccount.split("@")[0]} Viewer`,
+        read_only_of: activeDataAccount
+      }
+    }
+  });
+
+  if (error) {
+    setAccountStatus(error.message || "Could not create read-only login.");
     return;
   }
 
   users[shareUser] = {
     email: shareUser,
     displayName: `${activeDataAccount.split("@")[0]} Viewer`,
-    password: sharePass,
+    password: "supabase-managed",
     readOnlyOf: activeDataAccount,
     avatar: "",
     contact: { email: shareUser, phone: "" }
@@ -1506,7 +1575,8 @@ async function initAuth() {
 
   const key = ensureLocalUserFromSupabase(
     user.email,
-    user.user_metadata?.display_name || ""
+    user.user_metadata?.display_name || "",
+    user.user_metadata?.read_only_of || ""
   );
   startUserSession(key);
 }
