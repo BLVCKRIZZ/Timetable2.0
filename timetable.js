@@ -147,6 +147,22 @@ function setAccountStatus(message) {
   }
 }
 
+function renderRoleBadge() {
+  const badge = document.getElementById("roleBadge");
+  if (!badge) {
+    return;
+  }
+
+  if (isReadOnlySession) {
+    badge.textContent = "Read-only";
+    badge.classList.add("read-only");
+    return;
+  }
+
+  badge.textContent = "Owner";
+  badge.classList.remove("read-only");
+}
+
 function parseDateStrUTC(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -935,6 +951,7 @@ function startUserSession(username) {
 
   setViewMode(7);
   applyReadOnlyUI();
+  renderRoleBadge();
   renderHeaderProfileSwitcher();
   showApp();
   buildGrid();
