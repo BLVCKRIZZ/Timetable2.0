@@ -540,6 +540,8 @@ function openAccountOverlay() {
   document.getElementById("newProfilePassword").value = "";
   document.getElementById("shareUsername").value = "";
   document.getElementById("sharePassword").value = "";
+  document.getElementById("joinAccountEmail").value = "";
+  document.getElementById("joinAccountPassword").value = "";
   pendingAvatarDataUrl = user.avatar || "";
   const avatarPreview = document.getElementById("profilePhotoPreview");
   avatarPreview.src = pendingAvatarDataUrl || avatarDataUrlFromName(getDisplayNameForUser(user, activeLoginUser));
@@ -1367,6 +1369,42 @@ document.getElementById("saveContactBtn").addEventListener("click", () => {
   };
   saveUsers(users);
   setAccountStatus("Contact details saved.");
+});
+
+document.getElementById("joinReadOnlyBtn").addEventListener("click", async () => {
+  if (!supabaseClient) {
+    setAccountStatus("Supabase client failed to load.");
+    return;
+  }
+
+  const email = normalizeEmail(document.getElementById("joinAccountEmail").value);
+  const password = document.getElementById("joinAccountPassword").value;
+  if (!isValidEmail(email) || !password) {
+    setAccountStatus("Enter valid shared email and password.");
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error || !data?.user) {
+    setAccountStatus(error?.message || "Could not join this account.");
+    return;
+  }
+
+  const readOnlyOf = normalizeEmail(data.user.user_metadata?.read_only_of || "");
+  if (!readOnlyOf) {
+    setAccountStatus("This login is not a shared read-only account.");
+    return;
+  }
+
+  const key = ensureLocalUserFromSupabase(
+    data.user.email || email,
+    data.user.user_metadata?.display_name || "",
+    readOnlyOf
+  );
+
+  setAccountStatus(`Joined read-only account from ${readOnlyOf}.`);
+  closeAccountOverlay();
+  startUserSession(key);
 });
 
 document.getElementById("changePasswordBtn").addEventListener("click", () => {
