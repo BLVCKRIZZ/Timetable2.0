@@ -445,6 +445,10 @@ body {
   font-size: 12px;
 }
 
+select.calendar-country-input {
+  text-transform: none;
+}
+
 .calendar-country-input[disabled] {
   opacity: 0.55;
 }

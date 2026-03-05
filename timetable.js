@@ -1,6 +1,5 @@
-const START_HOUR = 7;
-const END_HOUR = 22;
-const TOTAL_HOURS = END_HOUR - START_HOUR;
+const DEFAULT_START_HOUR = 7;
+const DEFAULT_END_HOUR = 22;
 const USERS_KEY = "tt_users_v1";
 const SESSION_USER_KEY = "tt_session_user_v1";
 const SUPABASE_URL = "https://krpcvcgqnpdxfohsmjrj.supabase.co";
@@ -29,6 +28,8 @@ let timezoneOffsetMin = -new Date().getTimezoneOffset();
 let timetableEvents = [];
 let calendarEvents = [];
 let pendingAvatarDataUrl = "";
+let startHour = DEFAULT_START_HOUR;
+let endHour = DEFAULT_END_HOUR;
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -157,6 +158,56 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function getTotalHours() {
+  return endHour - startHour;
+}
+
+function padHour(hour) {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function getDefaultEventWindow() {
+  const startMin = startHour * 60;
+  const latestStart = Math.max(startMin, endHour * 60 - 60);
+  const proposed = Math.min(startMin + 60, latestStart);
+  const endMin = Math.min(proposed + 60, endHour * 60);
+  return {
+    start: minToTime(proposed),
+    end: minToTime(endMin)
+  };
+}
+
+function populateHourOptions() {
+  const startSel = document.getElementById("startHourInput");
+  const endSel = document.getElementById("endHourInput");
+  if (!startSel || !endSel || startSel.dataset.ready) {
+    return;
+  }
+
+  for (let hour = 0; hour <= 23; hour += 1) {
+    const opt = document.createElement("option");
+    opt.value = String(hour);
+    opt.textContent = padHour(hour);
+    startSel.appendChild(opt);
+  }
+
+  for (let hour = 1; hour <= 24; hour += 1) {
+    const opt = document.createElement("option");
+    opt.value = String(hour);
+    opt.textContent = padHour(hour % 24);
+    endSel.appendChild(opt);
+  }
+
+  startSel.dataset.ready = "1";
+  endSel.dataset.ready = "1";
+}
+
+function renderHourInputs() {
+  populateHourOptions();
+  document.getElementById("startHourInput").value = String(startHour);
+  document.getElementById("endHourInput").value = String(endHour);
+}
+
 function accountStorageKey(type, account) {
   return `tt_${type}_${account}`;
 }
@@ -241,6 +292,7 @@ function saveAccountData() {
   localStorage.setItem(accountStorageKey("timetable_events", activeDataAccount), JSON.stringify(timetableEvents));
   localStorage.setItem(accountStorageKey("calendar_events", activeDataAccount), JSON.stringify(calendarEvents));
   localStorage.setItem(accountStorageKey("timezone", activeDataAccount), String(timezoneOffsetMin));
+  localStorage.setItem(accountStorageKey("hours", activeDataAccount), JSON.stringify({ start: startHour, end: endHour }));
 }
 
 function migrateLegacyIfNeeded() {
@@ -260,6 +312,18 @@ function loadAccountData(dataAccount) {
 
   const storedOffset = localStorage.getItem(accountStorageKey("timezone", activeDataAccount));
   timezoneOffsetMin = storedOffset === null ? -new Date().getTimezoneOffset() : Number.parseInt(storedOffset, 10);
+
+  const storedHours = JSON.parse(localStorage.getItem(accountStorageKey("hours", activeDataAccount)) || "null");
+  const loadedStart = Number.parseInt(storedHours?.start, 10);
+  const loadedEnd = Number.parseInt(storedHours?.end, 10);
+  const hasValidStoredRange = Number.isInteger(loadedStart)
+    && Number.isInteger(loadedEnd)
+    && loadedStart >= 0
+    && loadedEnd <= 24
+    && loadedEnd > loadedStart;
+
+  startHour = hasValidStoredRange ? loadedStart : DEFAULT_START_HOUR;
+  endHour = hasValidStoredRange ? loadedEnd : DEFAULT_END_HOUR;
 }
 
 function getEventsForDateFromList(list, dateStr) {
@@ -326,10 +390,16 @@ function applyReadOnlyUI() {
   const addBtn = document.getElementById("calendarAddEventBtn");
   const tzInput = document.getElementById("timezoneInput");
   const tzBtn = document.getElementById("timezoneApplyBtn");
+  const startInput = document.getElementById("startHourInput");
+  const endInput = document.getElementById("endHourInput");
+  const hoursBtn = document.getElementById("hoursApplyBtn");
 
   addBtn.disabled = isReadOnlySession;
   tzInput.disabled = isReadOnlySession;
   tzBtn.disabled = isReadOnlySession;
+  startInput.disabled = isReadOnlySession;
+  endInput.disabled = isReadOnlySession;
+  hoursBtn.disabled = isReadOnlySession;
 
   document.getElementById("saveContactBtn").disabled = isReadOnlySession;
   document.getElementById("changePasswordBtn").disabled = isReadOnlySession;
@@ -608,7 +678,8 @@ function openCalendar() {
   renderCalendarEventsList();
 
   document.getElementById("timezoneInput").value = formatTimezoneOffset(timezoneOffsetMin);
-  setStatus(`Logged in as ${activeLoginUser}${isReadOnlySession ? " (read-only)" : ""} · TZ ${formatTimezoneOffset(timezoneOffsetMin)}`);
+  renderHourInputs();
+  setStatus(`Logged in as ${activeLoginUser}${isReadOnlySession ? " (read-only)" : ""} · TZ ${formatTimezoneOffset(timezoneOffsetMin)} · Hours ${padHour(startHour)}-${padHour(endHour % 24)}`);
   applyReadOnlyUI();
 
   const overlay = document.getElementById("calendarOverlay");
@@ -626,7 +697,13 @@ function renderEvent(ev, col, dateStr) {
   const hourHeight = getHourHeight();
   const startMin = timeToMin(ev.start);
   const endMin = timeToMin(ev.end);
-  const top = ((startMin - START_HOUR * 60) / 60) * hourHeight;
+  const rangeStart = startHour * 60;
+  const rangeEnd = endHour * 60;
+  if (endMin <= rangeStart || startMin >= rangeEnd) {
+    return;
+  }
+
+  const top = ((startMin - startHour * 60) / 60) * hourHeight;
   const height = Math.max(((endMin - startMin) / 60) * hourHeight - 3, 20);
 
   const el = document.createElement("div");
@@ -657,11 +734,14 @@ function buildGrid() {
   const dates = getVisibleDates(weekDates);
   const today = currentDateInTimezone();
   const hourHeight = getHourHeight();
+  const totalHours = getTotalHours();
 
   const weekDate = parseDateStrUTC(weekDates[0]);
   const weekNumber = getWeekNumber(weekDate);
   const ro = isReadOnlySession ? " · Read-only" : "";
-  document.getElementById("weekLabel").textContent = `@${activeLoginUser}${ro} · W ${weekNumber} · TZ ${formatTimezoneOffset(timezoneOffsetMin)}`;
+  document.getElementById("weekLabel").textContent = `@${activeLoginUser}${ro} · W ${weekNumber} · TZ ${formatTimezoneOffset(timezoneOffsetMin)} · H ${padHour(startHour)}-${padHour(endHour % 24)}`;
+
+  document.getElementById("grid").style.minHeight = `${(totalHours + 1) * hourHeight}px`;
 
   const daysHeader = document.getElementById("daysHeader");
   daysHeader.innerHTML = "";
@@ -676,11 +756,12 @@ function buildGrid() {
 
   const timeCol = document.getElementById("timeCol");
   timeCol.innerHTML = "";
-  for (let h = START_HOUR; h <= END_HOUR; h += 1) {
+  for (let h = startHour; h <= endHour; h += 1) {
     const slot = document.createElement("div");
     slot.className = "time-slot";
-    if (h < END_HOUR) {
-      const label = h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`;
+    if (h < endHour) {
+      const displayHour = h % 24;
+      const label = displayHour === 12 ? "12 PM" : displayHour > 12 ? `${displayHour - 12} PM` : displayHour === 0 ? "12 AM" : `${displayHour} AM`;
       slot.innerHTML = `<span class="time-label">${label}</span>`;
     }
     timeCol.appendChild(slot);
@@ -688,13 +769,13 @@ function buildGrid() {
 
   const hourLines = document.getElementById("hourLines");
   hourLines.innerHTML = "";
-  for (let h = 0; h <= TOTAL_HOURS; h += 1) {
+  for (let h = 0; h <= totalHours; h += 1) {
     const line = document.createElement("div");
     line.className = "hour-line";
     line.style.top = `${h * hourHeight}px`;
     hourLines.appendChild(line);
 
-    if (h < TOTAL_HOURS) {
+    if (h < totalHours) {
       const half = document.createElement("div");
       half.className = "half-line";
       half.style.top = `${h * hourHeight + hourHeight / 2}px`;
@@ -716,7 +797,7 @@ function buildGrid() {
       }
       const rect = col.getBoundingClientRect();
       const y = e.clientY - rect.top + document.getElementById("scrollArea").scrollTop;
-      const mins = Math.round((y / hourHeight) * 60 / 15) * 15 + START_HOUR * 60;
+      const mins = Math.round((y / hourHeight) * 60 / 15) * 15 + startHour * 60;
       openModal(null, ds, minToTime(mins), minToTime(mins + 60), "timetable");
     });
 
@@ -728,8 +809,8 @@ function buildGrid() {
   const nowCol = daysBody.querySelector(`[data-date="${today}"]`);
   if (nowCol) {
     const mins = timezoneNowMinutes();
-    const top = ((mins - START_HOUR * 60) / 60) * hourHeight;
-    if (top >= 0) {
+    const top = ((mins - startHour * 60) / 60) * hourHeight;
+    if (top >= 0 && top <= totalHours * hourHeight) {
       const line = document.createElement("div");
       line.className = "now-line";
       line.style.top = `${top}px`;
@@ -779,7 +860,7 @@ function closeModal() {
 function scrollToNow() {
   const hourHeight = getHourHeight();
   const mins = timezoneNowMinutes();
-  const top = ((mins - START_HOUR * 60) / 60) * hourHeight - 100;
+  const top = ((mins - startHour * 60) / 60) * hourHeight - 100;
 
   document.getElementById("scrollArea").scrollTo({
     top: Math.max(0, top),
@@ -1082,11 +1163,32 @@ document.getElementById("timezoneApplyBtn").addEventListener("click", () => {
   buildGrid();
   buildCalendarGrid();
   renderCalendarEventsList();
-  setStatus(`Logged in as ${activeLoginUser} · TZ ${formatTimezoneOffset(timezoneOffsetMin)}`);
+  setStatus(`Logged in as ${activeLoginUser} · TZ ${formatTimezoneOffset(timezoneOffsetMin)} · Hours ${padHour(startHour)}-${padHour(endHour % 24)}`);
+});
+
+document.getElementById("hoursApplyBtn").addEventListener("click", () => {
+  if (isReadOnlySession) {
+    setStatus("Read-only sessions cannot change timetable hours.");
+    return;
+  }
+
+  const nextStart = Number.parseInt(document.getElementById("startHourInput").value, 10);
+  const nextEnd = Number.parseInt(document.getElementById("endHourInput").value, 10);
+  if (!Number.isInteger(nextStart) || !Number.isInteger(nextEnd) || nextStart < 0 || nextEnd > 24 || nextEnd <= nextStart) {
+    setStatus("Pick valid hours. End must be later than start.");
+    return;
+  }
+
+  startHour = nextStart;
+  endHour = nextEnd;
+  saveAccountData();
+  buildGrid();
+  setStatus(`Logged in as ${activeLoginUser} · TZ ${formatTimezoneOffset(timezoneOffsetMin)} · Hours ${padHour(startHour)}-${padHour(endHour % 24)}`);
 });
 
 document.getElementById("calendarAddEventBtn").addEventListener("click", () => {
-  openModal(null, calendarSelectedDate, "08:00", "09:00", "calendar");
+  const defaults = getDefaultEventWindow();
+  openModal(null, calendarSelectedDate, defaults.start, defaults.end, "calendar");
 });
 
 document.getElementById("calendarEventsList").addEventListener("click", (e) => {
