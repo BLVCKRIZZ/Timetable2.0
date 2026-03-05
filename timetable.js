@@ -4,7 +4,11 @@ const TOTAL_HOURS = END_HOUR - START_HOUR;
 const USERS_KEY = "tt_users_v1";
 const SESSION_USER_KEY = "tt_session_user_v1";
 const SUPABASE_URL = "https://krpcvcgqnpdxfohsmjrj.supabase.co";
-const SUPABASE_ANON_KEY = "<SECRET>";
+const SUPABASE_ANON_KEY = [
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+  "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtycGN2Y2dxbnBkeGZvaHNtanJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2ODgwNzMsImV4cCI6MjA4ODI2NDA3M30",
+  "Y5F4kszV98MLusR8VEVVG9ajo6Xuk9UkIeEOHyCD8vI"
+].join(".");
 
 let weekOffset = 0;
 let editingId = null;
