@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Timetable</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="auth-screen" id="authScreen">
+  <div class="auth-card">
+    <h1 class="auth-title">Timetable Login</h1>
+    <p class="auth-sub">Create your account with email and password. Data is local now and can move to Supabase later.</p>
+    <div class="form-group">
+      <label class="form-label" for="authEmail">Email</label>
+      <input class="form-input" id="authEmail" type="email" placeholder="you@example.com" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="authUsername">Display Name (for sign up)</label>
+      <input class="form-input" id="authUsername" type="text" maxlength="30" placeholder="Your name" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="authPassword">Password</label>
+      <input class="form-input" id="authPassword" type="password" minlength="6" placeholder="At least 6 characters" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="authConfirmPassword">Confirm Password (for sign up)</label>
+      <input class="form-input" id="authConfirmPassword" type="password" minlength="6" placeholder="Type password again" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="signupBtn">Create Account</button>
+      <button class="btn-save" id="loginBtn">Log In</button>
+    </div>
+    <div class="calendar-country-note" id="authStatus"></div>
+  </div>
+</div>
+
+<div id="appShell" class="hidden">
+
+<div class="header">
+  <div class="header-top">
+    <span class="week-label" id="weekLabel">W — —</span>
+    <div class="header-actions">
+      <button class="btn" id="prevWeek">‹</button>
+      <button class="btn" id="calendarBtn">Calendar</button>
+      <button class="btn" id="myEventsBtn">My Events</button>
+      <button class="btn" id="accountBtn">Account</button>
+      <select class="btn profile-switch" id="profileSwitch"></select>
+      <button class="btn" id="switchProfileBtn">Switch</button>
+      <button class="btn" id="todayBtn">Today</button>
+      <button class="btn" id="nextWeek">›</button>
+      <button class="btn" id="logoutBtn">Log out</button>
+    </div>
+  </div>
+  <div class="view-mode-bar" id="viewModeBar">
+    <button class="btn btn-small active" data-view="1" id="view1Btn">1D</button>
+    <button class="btn btn-small" data-view="2" id="view2Btn">2D</button>
+    <button class="btn btn-small" data-view="3" id="view3Btn">3D</button>
+    <button class="btn btn-small" data-view="7" id="view7Btn">Week</button>
+  </div>
+  <div class="days-header" id="daysHeader"></div>
+</div>
+
+<div class="scroll-area" id="scrollArea">
+  <div class="grid" id="grid">
+    <div class="time-col" id="timeCol"></div>
+    <div class="days-body" id="daysBody">
+      <div class="hour-lines" id="hourLines"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modalTitle">New Event</div>
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input class="form-input" id="inputTitle" type="text" placeholder="Event name" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Subtitle / Location</label>
+      <input class="form-input" id="inputSub" type="text" placeholder="Room, teacher, notes..." />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Start</label>
+        <input class="form-input" id="inputStart" type="time" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">End</label>
+        <input class="form-input" id="inputEnd" type="time" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Repeat</label>
+      <select class="form-input" id="inputRepeat">
+        <option value="none">No repeat</option>
+        <option value="weekly">Every week</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Color</label>
+      <div class="color-picker">
+        <div class="color-opt c1 selected" data-color="color1"></div>
+        <div class="color-opt c2" data-color="color2"></div>
+        <div class="color-opt c3" data-color="color3"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-delete" id="btnDelete" style="display:none">Delete</button>
+      <button class="btn-save" id="btnSave">Save Event</button>
+    </div>
+  </div>
+</div>
+
+<!-- Calendar Overlay -->
+<div class="calendar-overlay" id="calendarOverlay" aria-hidden="true">
+  <div class="calendar-panel">
+    <div class="calendar-head">
+      <button class="btn" id="calendarPrevMonth">‹</button>
+      <div class="calendar-month" id="calendarMonthLabel">Month</div>
+      <button class="btn" id="calendarNextMonth">›</button>
+    </div>
+    <div class="calendar-country-row">
+      <label class="calendar-country-label" for="timezoneInput">Timezone</label>
+      <input class="calendar-country-input" id="timezoneInput" type="text" maxlength="6" placeholder="+02:00" />
+      <button class="btn btn-small" id="timezoneApplyBtn">Apply</button>
+    </div>
+    <div class="calendar-country-note" id="countryStatus"></div>
+    <div class="calendar-weekdays" id="calendarWeekdays"></div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="calendar-events">
+      <div class="calendar-events-head">
+        <div class="calendar-events-title" id="calendarEventsTitle">Events</div>
+        <button class="btn" id="calendarAddEventBtn">Add Event</button>
+      </div>
+      <div class="calendar-events-list" id="calendarEventsList"></div>
+    </div>
+    <div class="calendar-actions">
+      <button class="btn" id="calendarTodayBtn">Today</button>
+      <button class="btn" id="calendarCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- My Events Overlay -->
+<div class="calendar-overlay" id="myEventsOverlay" aria-hidden="true">
+  <div class="calendar-panel">
+    <div class="calendar-head">
+      <button class="btn" id="myEventsPrevDay">‹</button>
+      <div class="calendar-month" id="myEventsDateLabel">My Events</div>
+      <button class="btn" id="myEventsNextDay">›</button>
+    </div>
+    <div class="calendar-events-list" id="myEventsList"></div>
+    <div class="calendar-actions">
+      <button class="btn" id="myEventsTodayBtn">Today</button>
+      <button class="btn" id="myEventsCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Account Overlay -->
+<div class="calendar-overlay" id="accountOverlay" aria-hidden="true">
+  <div class="calendar-panel">
+    <div class="calendar-head">
+      <div class="calendar-month">Account Settings</div>
+      <button class="btn" id="accountCloseBtn">Close</button>
+    </div>
+
+    <div class="calendar-events">
+      <div class="calendar-events-title">Profile Details</div>
+      <div class="profile-photo-wrap">
+        <img id="profilePhotoPreview" class="profile-photo-preview" alt="Profile" />
+        <div class="profile-photo-controls">
+          <input class="form-input" id="profilePhotoInput" type="file" accept="image/*" />
+          <button class="btn btn-small" id="saveProfilePhotoBtn">Save Profile Picture</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="contactEmail">Email</label>
+        <input class="form-input" id="contactEmail" type="email" placeholder="name@email.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="contactPhone">Phone</label>
+        <input class="form-input" id="contactPhone" type="text" placeholder="Phone number" />
+      </div>
+      <button class="btn btn-small" id="saveContactBtn">Save Contact Details</button>
+    </div>
+
+    <div class="calendar-events">
+      <div class="calendar-events-title">Change Password</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="currentPassword">Current</label>
+          <input class="form-input" id="currentPassword" type="password" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="newPassword">New</label>
+          <input class="form-input" id="newPassword" type="password" />
+        </div>
+      </div>
+      <button class="btn btn-small" id="changePasswordBtn">Update Password</button>
+    </div>
+
+    <div class="calendar-events">
+      <div class="calendar-events-title">Create New Profile</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="newProfileUsername">Email</label>
+          <input class="form-input" id="newProfileUsername" type="email" maxlength="120" placeholder="newuser@example.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="newProfilePassword">Password</label>
+          <input class="form-input" id="newProfilePassword" type="password" />
+        </div>
+      </div>
+      <button class="btn btn-small" id="createProfileBtn">Add Profile</button>
+    </div>
+
+    <div class="calendar-events">
+      <div class="calendar-events-title">Create Read-Only Share Login</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="shareUsername">Share Email</label>
+          <input class="form-input" id="shareUsername" type="email" maxlength="120" placeholder="viewer@example.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="sharePassword">Share Password</label>
+          <input class="form-input" id="sharePassword" type="password" />
+        </div>
+      </div>
+      <button class="btn btn-small" id="createShareBtn">Create Read-Only Login</button>
+    </div>
+
+    <div class="calendar-events">
+      <div class="calendar-events-title">Profiles On This Device</div>
+      <div class="calendar-events-list" id="profilesList"></div>
+    </div>
+
+    <div class="calendar-events">
+      <button class="btn btn-danger" id="deleteAccountBtn">Delete Current Account</button>
+    </div>
+
+    <div class="calendar-country-note" id="accountStatus"></div>
+  </div>
+</div>
+
+</div>
+
+<script src="timetable.js" defer></script>
+</body>
+</html>
