@@ -3,6 +3,8 @@ const END_HOUR = 22;
 const TOTAL_HOURS = END_HOUR - START_HOUR;
 const USERS_KEY = "tt_users_v1";
 const SESSION_USER_KEY = "tt_session_user_v1";
+const SUPABASE_URL = "https://krpcvcgqnpdxfohsmjrj.supabase.co";
+const SUPABASE_ANON_KEY = "<SECRET>";
 
 let weekOffset = 0;
 let editingId = null;
@@ -25,6 +27,10 @@ let calendarEvents = [];
 let pendingAvatarDataUrl = "";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const supabaseClient = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
 function normalizeEmail(value) {
   return (value || "").trim().toLowerCase();
@@ -67,6 +73,33 @@ function getUsers() {
 
 function saveUsers(users) {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function ensureLocalUserFromSupabase(email, displayName = "") {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    return "";
+  }
+
+  const users = getUsers();
+  const existingKey = findUserKeyByEmail(users, normalizedEmail);
+  if (existingKey) {
+    if (!users[existingKey].email) {
+      users[existingKey].email = normalizedEmail;
+      saveUsers(users);
+    }
+    return existingKey;
+  }
+
+  users[normalizedEmail] = {
+    email: normalizedEmail,
+    displayName: normalizeDisplayName(displayName) || normalizedEmail.split("@")[0],
+    password: "supabase-managed",
+    avatar: "",
+    contact: { email: normalizedEmail, phone: "" }
+  };
+  saveUsers(users);
+  return normalizedEmail;
 }
 
 function setAuthStatus(message) {
@@ -789,32 +822,44 @@ function startUserSession(username) {
   scrollToNow();
 }
 
-function loginUser() {
+async function loginUser() {
+  if (!supabaseClient) {
+    setAuthStatus("Supabase client failed to load. Refresh and try again.");
+    return;
+  }
+
   const email = normalizeEmail(document.getElementById("authEmail").value);
   const password = document.getElementById("authPassword").value;
-  const users = getUsers();
-  const key = findUserKeyByEmail(users, email);
 
   if (!email || !password) {
     setAuthStatus("Enter email and password.");
     return;
   }
 
-  if (!key || !users[key] || users[key].password !== password) {
-    setAuthStatus("Invalid login details.");
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error || !data?.user) {
+    setAuthStatus(error?.message || "Invalid login details.");
     return;
   }
 
+  const key = ensureLocalUserFromSupabase(
+    data.user.email || email,
+    data.user.user_metadata?.display_name || ""
+  );
   setAuthStatus("");
   startUserSession(key);
 }
 
-function signupUser() {
+async function signupUser() {
+  if (!supabaseClient) {
+    setAuthStatus("Supabase client failed to load. Refresh and try again.");
+    return;
+  }
+
   const email = normalizeEmail(document.getElementById("authEmail").value);
   const displayName = normalizeDisplayName(document.getElementById("authUsername").value);
   const password = document.getElementById("authPassword").value;
   const confirmPassword = document.getElementById("authConfirmPassword").value;
-  const users = getUsers();
 
   if (!isValidEmail(email)) {
     setAuthStatus("Use a valid email address.");
@@ -831,25 +876,36 @@ function signupUser() {
     return;
   }
 
-  const existingKey = findUserKeyByEmail(users, email);
-  if (existingKey) {
-    setAuthStatus("An account with this email already exists.");
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        display_name: displayName || email.split("@")[0]
+      }
+    }
+  });
+
+  if (error) {
+    setAuthStatus(error.message || "Could not create account.");
     return;
   }
 
-  users[email] = {
-    email,
-    displayName: displayName || email.split("@")[0],
-    password,
-    avatar: "",
-    contact: { email, phone: "" }
-  };
-  saveUsers(users);
+  const key = ensureLocalUserFromSupabase(email, displayName);
+  if (!data?.session) {
+    setAuthStatus("Account created. Check your email to verify, then log in.");
+    return;
+  }
+
   setAuthStatus("Account created. You are now logged in.");
-  startUserSession(email);
+  startUserSession(key);
 }
 
-function logoutUser() {
+async function logoutUser() {
+  if (supabaseClient) {
+    await supabaseClient.auth.signOut();
+  }
+
   closeCalendar();
   closeModal();
   closeMyEventsOverlay();
@@ -1328,13 +1384,28 @@ window.addEventListener("resize", () => {
   }
 });
 
-const sessionUser = normalizeEmail(localStorage.getItem(SESSION_USER_KEY) || "");
-const users = getUsers();
-if (sessionUser && users[sessionUser]) {
-  startUserSession(sessionUser);
-} else {
-  showAuth();
+async function initAuth() {
+  if (!supabaseClient) {
+    showAuth();
+    setAuthStatus("Supabase client did not load.");
+    return;
+  }
+
+  const { data } = await supabaseClient.auth.getSession();
+  const user = data?.session?.user;
+  if (!user?.email) {
+    showAuth();
+    return;
+  }
+
+  const key = ensureLocalUserFromSupabase(
+    user.email,
+    user.user_metadata?.display_name || ""
+  );
+  startUserSession(key);
 }
+
+initAuth();
 
 setInterval(() => {
   if (!document.getElementById("appShell").classList.contains("hidden") && weekOffset === 0) {
